@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="fi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Salipäiväkirja</title>
+<!DOCTYPE html><html lang="fi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Punttikirja</title>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{color-scheme:dark;--bg:#0f1115;--c:#1a1d24;--c2:#272c36;--t:#eef0f4;--m:#8b93a3;--a:#4ade80;--w:#f59e0b;--d:#f87171;padding-top:env(safe-area-inset-top,0px)}
@@ -28,4 +28,168 @@ nav button{flex:1;background:none;border-radius:0;color:var(--m);font-size:13px;
 .trio{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}label{font-size:12px;color:var(--m)}
 .prx{border-top:1px solid #2a2f3a;padding-top:8px;margin-top:8px}
 .bar{display:grid;grid-template-columns:78px 1fr;gap:6px;align-items:center;margin:6px 0}
-.tr{position:relative;background:var(--c2);height:24px;border-radius:6px;overflow:hidden}.tr i{position:absolute;inset:0 auto 0 0;background:#1f6b45}.tr b{position:relative;padding:0 8px;line-height:24px;font-size:12px
+.tr{position:relative;background:var(--c2);height:24px;border-radius:6px;overflow:hidden}.tr i{position:absolute;inset:0 auto 0 0;background:#1f6b45}.tr b{position:relative;padding:0 8px;line-height:24px;font-size:12px}
+svg text{fill:var(--m);font-size:10px}summary{cursor:pointer;list-style:none}
+.msg{background:#3a2a10;color:#fcd34d;border-radius:10px;padding:8px 12px}.pr{color:var(--w)}
+</style></head><body>
+<main id="main"></main>
+<div id="rb" hidden><span>⏳ Lepo <b id="rt"></b></span><span><button data-a="r30">+30 s</button> <button data-a="rx">Ohita</button></span></div>
+<nav><button data-a="tab" data-t="w">🏋️<br>Treeni</button><button data-a="tab" data-t="p">📋<br>Ohjelmat</button><button data-a="tab" data-t="x">💪<br>Liikkeet</button><button data-a="tab" data-t="t">📈<br>Trendit</button></nav>
+<script>
+/* ===== Tietomalli =====
+ S.ex   [{id,n,m(lihasryhmä),e(väline)}]
+ S.prog [{id,n,days:[{n,ex:[{id,s(sarjat),r(toistot),rest(s)}]}]}]
+ S.hist [{id,start,end,pid,di,dn,notes,ex:[{id,rest,sets:[{w,r,rpe,d}]}]}]
+ S.cur  käynnissä oleva treeni (sama muoto), S.bw [{t,w}], S.active = ohjelman id */
+const $=s=>document.querySelector(s),uid=()=>Math.random().toString(36).slice(2,9),K='sali1';
+const MG=['Jalat','Rinta','Selkä','Hartiat','Hauis','Ojentaja','Keskivartalo'],EQ=['Tanko','Käsipaino','Laite','Kehonpaino'];
+const EX="Jalkakyykky|Jalat|Tanko;Etukyykky|Jalat|Tanko;Jalkaprässi|Jalat|Laite;Romanialainen maastaveto|Jalat|Tanko;Askelkyykky|Jalat|Käsipaino;Bulgarialainen askelkyykky|Jalat|Käsipaino;Reiden ojennus|Jalat|Laite;Reiden koukistus|Jalat|Laite;Pohjenousu|Jalat|Laite;Lonkkanosto|Jalat|Tanko;Penkkipunnerrus|Rinta|Tanko;Vinopenkkipunnerrus|Rinta|Käsipaino;Käsipainopunnerrus|Rinta|Käsipaino;Rintaprässi|Rinta|Laite;Cable-ristiveto|Rinta|Laite;Dipit|Rinta|Kehonpaino;Punnerrus|Rinta|Kehonpaino;Maastaveto|Selkä|Tanko;Leuanveto|Selkä|Kehonpaino;Ylätalja|Selkä|Laite;Kulmasoutu|Selkä|Tanko;Yhden käden soutu|Selkä|Käsipaino;Alatalja|Selkä|Laite;T-soutu|Selkä|Tanko;Pystypunnerrus|Hartiat|Tanko;Hartiapunnerrus|Hartiat|Käsipaino;Sivunosto|Hartiat|Käsipaino;Takaolkapää|Hartiat|Laite;Face pull|Hartiat|Laite;Pystysoutu|Hartiat|Tanko;Hauiskäännö|Hauis|Käsipaino;Tankokääntö|Hauis|Tanko;Vasarakäännö|Hauis|Käsipaino;Scott-käännö|Hauis|Laite;Ojentajapunnerrus talja|Ojentaja|Laite;Ranskalainen punnerrus|Ojentaja|Tanko;Pään takaa ojennus|Ojentaja|Käsipaino;Dippi penkillä|Ojentaja|Kehonpaino;Vatsarutistus|Keskivartalo|Kehonpaino;Lankku|Keskivartalo|Kehonpaino;Jalannosto riipunnassa|Keskivartalo|Kehonpaino;Vatsaprässi|Keskivartalo|Laite;Venäläinen kierto|Keskivartalo|Käsipaino;Selkäojennus|Keskivartalo|Kehonpaino;Ab wheel|Keskivartalo|Kehonpaino";
+let S,V={tab:'w',sub:'sum',pe:null,xe:null,mg:'',xs:null,mt:'e',msg:''},CF=null,REST=null;
+function seed(){
+ const ex=EX.split(';').map(s=>{const[n,m,e]=s.split('|');return{id:uid(),n,m,e}}),id=n=>ex.find(x=>x.n==n).id;
+ const mk=(n,days)=>({id:uid(),n,days:days.map(([dn,l])=>({n:dn,ex:l.split(',').map((x,i)=>({id:id(x),s:i?3:4,r:i?'8-12':'5-8',rest:i?90:150}))}))});
+ const prog=[
+  mk('Koko keho 3x/vko',[['Koko keho A','Jalkakyykky,Penkkipunnerrus,Kulmasoutu,Hartiapunnerrus,Hauiskäännö,Lankku'],['Koko keho B','Maastaveto,Pystypunnerrus,Ylätalja,Vinopenkkipunnerrus,Askelkyykky,Vatsarutistus'],['Koko keho C','Etukyykky,Käsipainopunnerrus,Alatalja,Sivunosto,Ranskalainen punnerrus,Jalannosto riipunnassa']]),
+  mk('Ylä/ala 4x/vko',[['Ylävartalo A','Penkkipunnerrus,Kulmasoutu,Hartiapunnerrus,Ylätalja,Hauiskäännö,Ojentajapunnerrus talja'],['Alavartalo A','Jalkakyykky,Romanialainen maastaveto,Jalkaprässi,Reiden koukistus,Pohjenousu,Vatsarutistus'],['Ylävartalo B','Vinopenkkipunnerrus,Leuanveto,Sivunosto,Yhden käden soutu,Vasarakäännö,Ranskalainen punnerrus'],['Alavartalo B','Maastaveto,Askelkyykky,Reiden ojennus,Lonkkanosto,Pohjenousu,Lankku']]),
+  mk('Push/Pull/Legs',[['Push','Penkkipunnerrus,Pystypunnerrus,Vinopenkkipunnerrus,Sivunosto,Ojentajapunnerrus talja,Ranskalainen punnerrus'],['Pull','Kulmasoutu,Leuanveto,Ylätalja,Face pull,Hauiskäännö,Vasarakäännö'],['Legs','Jalkakyykky,Romanialainen maastaveto,Jalkaprässi,Reiden ojennus,Reiden koukistus,Pohjenousu']])];
+ const hist=[],now=Date.now(),D=864e5;
+ for(let i=0;i<9;i++){const t=now-(27-i*3)*D;hist.push({id:uid(),smp:1,start:t,end:t+3.2e6,pid:null,di:0,dn:'Esimerkkitreeni',notes:'',ex:[['Jalkakyykky',60],['Penkkipunnerrus',50],['Kulmasoutu',45]].map(([n,w])=>({id:id(n),rest:90,sets:[8,8,7].map(r=>({w:w+i*2.5,r,rpe:'',d:true}))}))})}
+ S={ex,prog,active:prog[0].id,hist,cur:null,bw:[0,1,2,3,4,5].map(i=>({t:now-(25-i*5)*D,w:82-i*.3,smp:1}))};
+}
+try{S=JSON.parse(localStorage.getItem(K))}catch(e){}if(!S||!S.ex||!S.prog||!S.hist)seed();
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}};
+/* ===== Apurit ===== */
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const xn=id=>(S.ex.find(e=>e.id==id)||{n:'(poistettu)'}).n,dt=t=>new Date(t).toLocaleDateString('fi-FI',{day:'numeric',month:'numeric'});
+const ft=s=>{s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const e1rm=(w,r)=>r>1?w*(1+r/30):w; /* Epley */
+const vol=h=>Math.round(h.ex.reduce((a,x)=>a+x.sets.reduce((b,s)=>b+(s.d?s.w*s.r:0),0),0));
+const HS=()=>S.hist.slice().sort((a,b)=>a.start-b.start);
+const wk=t=>{const d=new Date(t);d.setHours(0,0,0,0);d.setDate(d.getDate()-(d.getDay()+6)%7);return+d};
+function last(id,ex){const h=HS();for(let i=h.length-1;i>=0;i--){if(h[i].id==ex)continue;const e=h[i].ex.find(x=>x.id==id);if(e&&e.sets.length)return e.sets}return null}
+function newEx(id,t){const l=last(id),top=l?Math.max(...l.map(s=>s.w)):0;return{id,rest:t?t.rest:90,tr:t?t.s+'×'+t.r:'',sets:Array.from({length:t?t.s:3},()=>({w:top,r:t?parseInt(t.r)||8:8,rpe:'',d:false}))}}
+function startW(pid,di){const p=S.prog.find(x=>x.id==pid),d=p.days[di];S.cur={id:uid(),start:Date.now(),pid,di,dn:p.n+' – '+d.n,notes:'',ex:d.ex.map(x=>newEx(x.id,x))}}
+function nextDi(p){const l=HS().filter(h=>h.pid==p.id).pop();return l&&l.di+1<p.days.length?l.di+1:0}
+const exOpts=l=>`<option value="">${l}</option>`+MG.map(g=>`<optgroup label="${g}">${S.ex.filter(x=>x.m==g).map(x=>`<option value="${x.id}">${esc(x.n)}</option>`).join('')}</optgroup>`).join('');
+function conf(k,f){if(CF==k){CF=null;f()}else{CF=k;setTimeout(()=>{if(CF==k){CF=null;r()}},3000)}}
+/* ===== Näkymät ===== */
+function hrow(h){return`<details class="card"><summary><b>${esc(h.dn)}</b><br><span class="sm">${dt(h.start)} · ${Math.round((h.end-h.start)/6e4)} min · ${vol(h)} kg</span></summary>${h.ex.map(x=>`<div class="sm"><b>${esc(xn(x.id))}</b>: ${x.sets.map(s=>s.w+'×'+s.r+(s.rpe?' @'+s.rpe:'')).join(', ')}</div>`).join('')}${h.notes?`<p class="sm">📝 ${esc(h.notes)}</p>`:''}<div class="chips"><button class="chip" data-a="hedit" data-id="${h.id}">Muokkaa</button><button class="chip dn" data-a="hdel" data-id="${h.id}">${CF=='h'+h.id?'Varmista?':'Poista'}</button></div></details>`}
+function vW(){
+ if(S.cur)return vL();
+ const p=S.prog.find(x=>x.id==S.active),h=HS().slice(-3).reverse();
+ let o='<h1>Treeni</h1><div class="card">';
+ if(S.prog.length){o+=`<label>Aktiivinen ohjelma</label><select data-c="act">${S.prog.map(x=>`<option value="${x.id}" ${x.id==S.active?'selected':''}>${esc(x.n)}</option>`).join('')}</select>`;
+  if(p&&p.days.length){const n=nextDi(p);o+=`<p class="sm">Seuraava: <b>${esc(p.days[n].n)}</b></p><button class="btn pri" data-a="start" data-p="${p.id}" data-di="${n}">▶ Aloita ${esc(p.days[n].n)}</button><div class="chips">${p.days.map((d,i)=>i==n?'':`<button class="chip" data-a="start" data-p="${p.id}" data-di="${i}">${esc(d.n)}</button>`).join('')}</div>`}}
+ else o+='<p class="sm">Ei ohjelmia. Luo ohjelma Ohjelmat-välilehdellä.</p>';
+ return o+'</div><button class="btn" data-a="free">＋ Vapaa treeni</button><h2>Viimeisimmät</h2>'+(h.map(hrow).join('')||'<p class="sm">Ei treenejä vielä.</p>')}
+const st=(k,v,a)=>`<div class="st"><button data-a="${k}m" ${a}>−</button><input inputmode="decimal" value="${v}" data-c="s${k}" ${a}><button data-a="${k}p" ${a}>+</button></div>`;
+function vL(){const c=S.cur;
+ let o=`<h1>${esc(c.dn)}</h1><div class="row sm"><span>⏱ <b id="tm"></b></span><span>Volyymi ${vol(c)} kg</span></div>`;
+ c.ex.forEach((x,i)=>{const lp=last(x.id,c.id);
+  o+=`<div class="card"><div class="row"><b>${esc(xn(x.id))}</b><button class="ic" data-a="rmx" data-i="${i}">✕</button></div><div class="sm">${x.tr?'Tavoite '+x.tr+' · ':''}Edellinen: ${lp?lp.map(s=>s.w+'×'+s.r).join(', '):'–'}</div>`;
+  x.sets.forEach((s,j)=>{const a=`data-i="${i}" data-j="${j}"`;
+   o+=`<div class="set"><span class="sm">${j+1}</span>${st('w',s.w,a)}${st('r',s.r,a)}<select data-c="sp" ${a}>${['','6','7','7.5','8','8.5','9','9.5','10'].map(v=>`<option value="${v}" ${v==s.rpe?'selected':''}>${v||'RPE'}</option>`).join('')}</select><button class="ok ${s.d?'on':''}" data-a="tog" ${a}>✓</button></div>`});
+  o+=`<div class="chips"><button class="chip" data-a="addset" data-i="${i}">＋ Sarja</button><button class="chip" data-a="rmset" data-i="${i}">− Sarja</button></div></div>`});
+ return o+`<select data-c="addx">${exOpts('＋ Lisää liike')}</select><textarea data-c="notes" placeholder="Muistiinpanot">${esc(c.notes||'')}</textarea><button class="btn pri" data-a="fin">✔ ${c.edit?'Tallenna muutokset':'Lopeta treeni'}</button><button class="btn dn" data-a="discard">${CF=='disc'?'Varmista?':c.edit?'Peruuta muokkaus':'Hylkää treeni'}</button>`}
+function vP(){
+ if(V.pe)return vPE(S.prog.find(p=>p.id==V.pe));
+ return'<h1>Ohjelmat</h1>'+S.prog.map(p=>`<div class="card"><div class="row"><b>${esc(p.n)}</b>${p.id==S.active?'<span class="tag">Käytössä</span>':''}</div><div class="sm">${p.days.map(d=>esc(d.n)).join(' · ')}</div><div class="chips"><button class="chip" data-a="use" data-id="${p.id}">Käytä</button><button class="chip" data-a="pedit" data-id="${p.id}">Muokkaa</button><button class="chip" data-a="pcopy" data-id="${p.id}">Kopioi</button><button class="chip dn" data-a="pdel" data-id="${p.id}">${CF=='p'+p.id?'Varmista?':'Poista'}</button></div></div>`).join('')+'<button class="btn pri" data-a="pnew">＋ Uusi ohjelma</button>'}
+function vPE(p){
+ let o=`<button class="chip" data-a="pback">← Takaisin</button><input data-c="pn" value="${esc(p.n)}">`;
+ p.days.forEach((d,i)=>{o+=`<div class="card"><div class="row"><input data-c="dn" data-d="${i}" value="${esc(d.n)}"><button class="ic dn" data-a="ddel" data-d="${i}">${CF=='d'+i?'?':'✕'}</button></div>`;
+  d.ex.forEach((x,j)=>{const a=`data-d="${i}" data-j="${j}"`;o+=`<div class="prx"><div class="row"><b>${esc(xn(x.id))}</b><span><button class="ic" data-a="pup" ${a}>▲</button><button class="ic" data-a="pdn" ${a}>▼</button><button class="ic" data-a="prm" ${a}>✕</button></span></div><div class="trio"><label>Sarjat<input inputmode="numeric" data-c="pf" data-k="s" ${a} value="${x.s}"></label><label>Toistot<input data-c="pf" data-k="r" ${a} value="${esc(x.r)}"></label><label>Lepo (s)<input inputmode="numeric" data-c="pf" data-k="rest" ${a} value="${x.rest}"></label></div></div>`});
+  o+=`<select data-c="addpx" data-d="${i}">${exOpts('＋ Lisää liike')}</select></div>`});
+ return o+'<button class="btn" data-a="dadd">＋ Lisää treenipäivä</button>'}
+function vX(){
+ if(V.xe){const e=V.xe;return`<h1>${e.id?'Muokkaa liikettä':'Uusi liike'}</h1><div class="card"><input data-c="xn" value="${esc(e.n)}" placeholder="Nimi"><select data-c="xm">${MG.map(g=>`<option ${g==e.m?'selected':''}>${g}</option>`).join('')}</select><select data-c="xe">${EQ.map(g=>`<option ${g==e.e?'selected':''}>${g}</option>`).join('')}</select><button class="btn pri" data-a="xsave">Tallenna</button><button class="btn" data-a="xcancel">Peruuta</button></div>`}
+ const g=V.mg;
+ return`<h1>Liikkeet</h1><div class="chips">${['',...MG].map(m=>`<button class="chip ${m==g?'on':''}" data-a="mg" data-g="${m}">${m||'Kaikki'}</button>`).join('')}</div><button class="btn pri" data-a="xnew">＋ Uusi liike</button>`+S.ex.filter(x=>!g||x.m==g).sort((a,b)=>a.n.localeCompare(b.n,'fi')).map(x=>`<div class="card"><div class="row"><div><b>${esc(x.n)}</b><div class="sm">${x.m} · ${x.e}</div></div><span><button class="ic" data-a="xedit" data-id="${x.id}">✎</button><button class="ic dn" data-a="xdel" data-id="${x.id}">${CF=='x'+x.id?'?':'🗑'}</button></span></div></div>`).join('')}
+function chart(p){
+ if(p.length<2)return'<p class="sm">Tarvitaan vähintään 2 kirjausta.</p>';
+ const W=340,H=170,L=34,B=20,T=10,R=8,xs=p.map(a=>a.x),ys=p.map(a=>a.y),x0=Math.min(...xs),x1=Math.max(...xs);let y0=Math.min(...ys),y1=Math.max(...ys);if(y0==y1){y0-=1;y1+=1}
+ const px=x=>L+(x-x0)/(x1-x0||1)*(W-L-R),py=y=>H-B-(y-y0)/(y1-y0)*(H-B-T);
+ let s=`<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+ [0,.5,1].forEach(f=>{const y=y0+(y1-y0)*f;s+=`<line x1="${L}" x2="${W-R}" y1="${py(y)}" y2="${py(y)}" stroke="#2a2f3a"/><text x="2" y="${py(y)+3}">${Math.round(y*10)/10}</text>`});
+ s+=`<polyline fill="none" stroke="#4ade80" stroke-width="2" points="${p.map(a=>px(a.x)+','+py(a.y)).join(' ')}"/>`;
+ p.forEach(a=>s+=`<circle cx="${px(a.x)}" cy="${py(a.y)}" r="${a.pr?5:3}" fill="${a.pr?'#f59e0b':'#4ade80'}"/>`);
+ return s+`<text x="${L}" y="${H-4}">${dt(x0)}</text><text x="${W-R}" y="${H-4}" text-anchor="end">${dt(x1)}</text></svg>`}
+const bar=(l,w,t)=>`<div class="bar"><span class="sm">${l}</span><div class="tr"><i style="width:${w}%"></i><b>${t}</b></div></div>`;
+function tSum(){
+ const hs=HS(),w0=wk(Date.now()),rows=[];
+ for(let i=5;i>=0;i--){const a=w0-i*7*864e5,l=hs.filter(h=>h.start>=a&&h.start<a+7*864e5);rows.push({a,n:l.length,v:l.reduce((s,h)=>s+vol(h),0)})}
+ const mx=Math.max(1,...rows.map(r=>r.v));
+ let o='<h2>Viikot (alkaen)</h2><div class="card">'+rows.map(r=>bar(dt(r.a),r.v/mx*100,r.n+'× · '+r.v.toLocaleString('fi-FI')+' kg')).join('')+'</div>';
+ const m={};hs.filter(h=>h.start>Date.now()-7*864e5).forEach(h=>h.ex.forEach(x=>{const g=(S.ex.find(e=>e.id==x.id)||{}).m||'Muu';m[g]=(m[g]||0)+x.sets.length}));
+ const mm=Math.max(1,...Object.values(m));
+ o+='<h2>Lihasryhmät, 7 pv (sarjat)</h2><div class="card">'+(Object.keys(m).length?Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,v])=>bar(k,v/mm*100,v)).join(''):'<p class="sm">Ei treenejä viimeisen 7 päivän aikana.</p>')+'</div>';
+ const best={},prs=[];hs.forEach(h=>h.ex.forEach(x=>{const v=Math.max(...x.sets.map(s=>e1rm(s.w,s.r)));if(best[x.id]!==undefined&&v>best[x.id])prs.push({t:h.start,n:xn(x.id),v});best[x.id]=Math.max(best[x.id]||0,v)}));
+ o+='<h2>🏆 Uusimmat ennätykset</h2><div class="card">'+(prs.slice(-5).reverse().map(p=>`<div class="row"><span class="pr">${esc(p.n)}</span><span>1RM ≈ ${Math.round(p.v*10)/10} kg · ${dt(p.t)}</span></div>`).join('')||'<p class="sm">Ei vielä ennätyksiä.</p>')+'</div>';
+ const bw=(S.bw||[]).slice().sort((a,b)=>a.t-b.t);
+ return o+`<h2>Kehonpaino</h2><div class="card"><div class="row"><input id="bwi" inputmode="decimal" placeholder="kg"><button class="chip" data-a="bwadd">Kirjaa</button></div>${chart(bw.map(b=>({x:b.t,y:b.w})))}</div>`}
+function tEx(){
+ const ids=[...new Set(S.hist.flatMap(h=>h.ex.map(x=>x.id)))];
+ if(!ids.length)return'<p class="sm">Ei kirjattuja treenejä.</p>';
+ if(!ids.includes(V.xs))V.xs=ids[0];
+ const pts=[];HS().forEach(h=>{const x=h.ex.find(e=>e.id==V.xs);if(x)pts.push({x:h.start,e:Math.max(...x.sets.map(s=>e1rm(s.w,s.r))),w:Math.max(...x.sets.map(s=>s.w)),v:x.sets.reduce((a,s)=>a+s.w*s.r,0)})});
+ let b=0;pts.forEach((p,i)=>{p.pr=i>0&&p[V.mt]>b;b=Math.max(b,p[V.mt])});
+ const mx=k=>Math.round(Math.max(...pts.map(p=>p[k]))*10)/10;
+ return`<select data-c="xs">${ids.map(i=>`<option value="${i}" ${i==V.xs?'selected':''}>${esc(xn(i))}</option>`).join('')}</select><div class="chips">${[['e','1RM-arvio'],['w','Paras paino'],['v','Volyymi']].map(([k,l])=>`<button class="chip ${V.mt==k?'on':''}" data-a="mt" data-m="${k}">${l}</button>`).join('')}</div><div class="card">${chart(pts.map(p=>({x:p.x,y:p[V.mt],pr:p.pr})))}<p class="sm"><span class="pr">●</span> = ennätys</p></div><div class="card"><div class="row"><span>Paras 1RM-arvio (Epley)</span><b>${mx('e')} kg</b></div><div class="row"><span>Paras paino</span><b>${mx('w')} kg</b></div><div class="row"><span>Treenejä</span><b>${pts.length}</b></div></div>`}
+const tHist=()=>HS().reverse().map(hrow).join('')||'<p class="sm">Ei treenejä.</p>';
+const tData=()=>`<div class="card"><b>Vienti</b><textarea id="exp" readonly rows="4">${esc(JSON.stringify(S))}</textarea><button class="chip" data-a="copy">Kopioi leikepöydälle</button></div><div class="card"><b>Tuonti</b><textarea id="imp" placeholder="Liitä JSON"></textarea><button class="chip" data-a="imp">Tuo</button></div><div class="card"><button class="btn dn" data-a="clr">${CF=='clr'?'Varmista?':'Tyhjennä esimerkkidata'}</button><button class="btn dn" data-a="clrall">${CF=='all'?'Varmista?':'Tyhjennä kaikki historia'}</button></div>`;
+function vT(){return`<h1>Trendit</h1><div class="chips">${[['sum','Yhteenveto'],['ex','Liike'],['hist','Historia'],['data','Data']].map(([k,l])=>`<button class="chip ${V.sub==k?'on':''}" data-a="sub" data-s="${k}">${l}</button>`).join('')}</div>`+({sum:tSum,ex:tEx,hist:tHist,data:tData})[V.sub]()}
+function r(){
+ $('#main').innerHTML=(V.msg?`<p class="msg">${V.msg}</p>`:'')+({w:vW,p:vP,x:vX,t:vT})[V.tab]();
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==V.tab));tick()}
+function tick(){
+ const c=S.cur,a=$('#tm');if(a&&c)a.textContent=ft(((c.edit?c.end:Date.now())-c.start)/1000);
+ const b=$('#rb');if(REST){const s=Math.ceil((REST.end-Date.now())/1000);if(s>0){$('#rt').textContent=ft(s);b.hidden=false;return}REST=null;try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){}}
+ b.hidden=true}
+setInterval(tick,1000);
+/* ===== Toiminnot (klikkaukset) ===== */
+const A={},C={},cx=d=>S.cur.ex[d.i],cs=d=>cx(d).sets[d.j],pp=()=>S.prog.find(p=>p.id==V.pe);
+Object.assign(A,{
+tab:d=>{V.tab=d.t;V.pe=V.xe=null},sub:d=>{V.sub=d.s},mt:d=>{V.mt=d.m},mg:d=>{V.mg=V.mg==d.g?'':d.g},
+start:d=>startW(d.p,+d.di),
+free:()=>{S.cur={id:uid(),start:Date.now(),pid:null,di:0,dn:'Vapaa treeni',notes:'',ex:[]}},
+wm:d=>{const s=cs(d);s.w=Math.max(0,+(s.w-2.5).toFixed(2))},wp:d=>{const s=cs(d);s.w=+(s.w+2.5).toFixed(2)},
+rm:d=>{const s=cs(d);s.r=Math.max(0,s.r-1)},rp:d=>{cs(d).r++},
+tog:d=>{const s=cs(d);s.d=!s.d;if(s.d)REST={end:Date.now()+cx(d).rest*1000}},
+addset:d=>{const x=cx(d),l=x.sets[x.sets.length-1]||{w:0,r:8};x.sets.push({w:l.w,r:l.r,rpe:'',d:false})},
+rmset:d=>{cx(d).sets.pop()},rmx:d=>{S.cur.ex.splice(d.i,1)},
+r30:()=>{if(REST)REST.end+=3e4},rx:()=>{REST=null},
+fin:()=>{const c=S.cur,ex=c.ex.map(x=>({...x,sets:x.sets.filter(s=>s.d)})).filter(x=>x.sets.length);
+ if(!ex.length){V.msg='Merkitse vähintään yksi sarja tehdyksi (✓).';return}
+ c.ex=ex;if(!c.edit)c.end=Date.now();delete c.edit;const i=S.hist.findIndex(h=>h.id==c.id);i<0?S.hist.push(c):S.hist[i]=c;S.cur=null;REST=null},
+discard:()=>conf('disc',()=>{S.cur=null;REST=null}),
+hedit:d=>{if(S.cur){V.msg='Lopeta nykyinen treeni ensin.';return}S.cur=JSON.parse(JSON.stringify(S.hist.find(h=>h.id==d.id)));S.cur.edit=1;V.tab='w'},
+hdel:d=>conf('h'+d.id,()=>{S.hist=S.hist.filter(h=>h.id!=d.id)}),
+use:d=>{S.active=d.id},pedit:d=>{V.pe=d.id},pback:()=>{V.pe=null},
+pnew:()=>{const p={id:uid(),n:'Uusi ohjelma',days:[{n:'Päivä 1',ex:[]}]};S.prog.push(p);V.pe=p.id},
+pcopy:d=>{const p=JSON.parse(JSON.stringify(S.prog.find(x=>x.id==d.id)));p.id=uid();p.n+=' (kopio)';S.prog.push(p)},
+pdel:d=>conf('p'+d.id,()=>{S.prog=S.prog.filter(p=>p.id!=d.id);if(S.active==d.id)S.active=S.prog[0]?S.prog[0].id:null}),
+dadd:()=>{const p=pp();p.days.push({n:'Päivä '+(p.days.length+1),ex:[]})},
+ddel:d=>conf('d'+d.d,()=>{if(pp().days.length>1)pp().days.splice(d.d,1)}),
+pup:d=>{const l=pp().days[d.d].ex,j=+d.j;if(j>0)[l[j-1],l[j]]=[l[j],l[j-1]]},
+pdn:d=>{const l=pp().days[d.d].ex,j=+d.j;if(j<l.length-1)[l[j+1],l[j]]=[l[j],l[j+1]]},
+prm:d=>{pp().days[d.d].ex.splice(d.j,1)},
+xnew:()=>{V.xe={n:'',m:'Jalat',e:'Tanko'}},xedit:d=>{V.xe={...S.ex.find(x=>x.id==d.id)}},xcancel:()=>{V.xe=null},
+xsave:()=>{const e=V.xe;if(!e.n.trim()){V.msg='Anna liikkeelle nimi.';return}if(e.id)Object.assign(S.ex.find(x=>x.id==e.id),e);else S.ex.push({...e,id:uid()});V.xe=null},
+xdel:d=>conf('x'+d.id,()=>{S.ex=S.ex.filter(x=>x.id!=d.id)}),
+bwadd:()=>{const v=parseFloat($('#bwi').value.replace(',','.'));if(v>0){S.bw=S.bw||[];S.bw.push({t:Date.now(),w:v})}},
+copy:()=>{$('#exp').select();try{navigator.clipboard.writeText(JSON.stringify(S))}catch(e){}V.msg='Kopioitu (tai valitse teksti ja kopioi käsin).'},
+imp:()=>{try{const o=JSON.parse($('#imp').value);if(!o.ex||!o.prog||!o.hist)throw 0;o.bw=o.bw||[];S=o;V.msg='Tuonti onnistui.'}catch(e){V.msg='Virheellinen JSON.'}},
+clr:()=>conf('clr',()=>{S.hist=S.hist.filter(h=>!h.smp);S.bw=(S.bw||[]).filter(b=>!b.smp)}),
+clrall:()=>conf('all',()=>{S.hist=[];S.bw=[]})});
+/* ===== Toiminnot (kenttien muutokset); palauttaa 1 jos näkymä piirretään uudelleen ===== */
+Object.assign(C,{
+sw:(d,v)=>{cs(d).w=parseFloat(v.replace(',','.'))||0},sr:(d,v)=>{cs(d).r=parseInt(v)||0},sp:(d,v)=>{cs(d).rpe=v},notes:(d,v)=>{S.cur.notes=v},
+addx:(d,v)=>{if(v){S.cur.ex.push(newEx(v));return 1}},act:(d,v)=>{S.active=v;return 1},
+pn:(d,v)=>{pp().n=v},dn:(d,v)=>{pp().days[d.d].n=v},
+pf:(d,v)=>{const x=pp().days[d.d].ex[d.j];x[d.k]=d.k=='r'?v:(parseInt(v)||1)},
+addpx:(d,v)=>{if(v){pp().days[d.d].ex.push({id:v,s:3,r:'8-12',rest:90});return 1}},
+xn:(d,v)=>{V.xe.n=v},xm:(d,v)=>{V.xe.m=v},xe:(d,v)=>{V.xe.e=v},xs:(d,v)=>{V.xs=v;return 1}});
+document.addEventListener('click',e=>{const el=e.target.closest('[data-a]'),a=el&&el.dataset.a;if(!A[a])return;
+ V.msg='';const y=scrollY;A[a](el.dataset);save();r();scrollTo(0,/^(tab|sub|start|free|fin|pedit|pnew|xnew|xedit|hedit)$/.test(a)?0:y)});
+document.addEventListener('change',e=>{const t=e.target,f=C[t.dataset.c];if(!f)return;V.msg='';const y=scrollY;if(f(t.dataset,t.value)){save();r();scrollTo(0,y)}else save()});
+r();
+</script></body></html>
